@@ -1,6 +1,6 @@
 import pytest
-from car import Car
-from picker import filter_cars, pick_random_car
+from forza_picker.car import Car
+from forza_picker.picker import filter_cars, pick_random_car
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from car import Car
+from forza_picker.car import Car
 
 
 def load_cars(file_path: str | Path) -> list[Car]:

@@ -5,7 +5,7 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-from car import Car
+from forza_picker.car import Car
 
 FORZA_CAR_LIST_URL = "https://forza.net/fh6cars"
 

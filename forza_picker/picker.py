@@ -1,4 +1,4 @@
-from car import Car
+from forza_picker.car import Car
 import random
 
 

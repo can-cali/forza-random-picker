@@ -1,7 +1,10 @@
+import sys
 from pathlib import Path
 
-from catalog import load_cars
-from picker import filter_cars, pick_random_car
+from PySide6.QtWidgets import QApplication
+
+from forza_picker.catalog import load_cars
+from forza_picker.main_window import MainWindow
 
 
 def main():
@@ -10,25 +13,12 @@ def main():
 
     cars = load_cars(catalog_path)
 
-    filtered_cars = filter_cars(
-        cars,
-        car_class="X",
-        country="Italy",
-    )
+    app = QApplication(sys.argv)
 
-    print(f"Total cars: {len(cars)}")
-    print(f"Matching cars: {len(filtered_cars)}")
+    window = MainWindow(cars)
+    window.show()
 
-    for car in filtered_cars:
-        print(car)
-
-    selected_car = pick_random_car(filtered_cars)
-
-    if selected_car is None:
-        print("No cars match these filters.")
-    else:
-        print("Random car:")
-        print(selected_car)
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
