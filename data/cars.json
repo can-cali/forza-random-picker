@@ -1,0 +1,26 @@
+[
+    {
+        "make": "Abarth",
+        "model": "595 esseesse",
+        "year": 1968,
+        "pi": 100,
+        "car_class": "D",
+        "country": "Italy",
+        "car_type": "Cult Cars",
+        "is_in_autoshow": true,
+        "dlc": null,
+        "ordinal": null
+    },
+    {
+        "make": "Aston Martin",
+        "model": "DB7 GT",
+        "year": 2003,
+        "pi": 566,
+        "car_class": "B",
+        "country": "UK",
+        "car_type": "Retro Sports Cars",
+        "is_in_autoshow": true,
+        "dlc": "Car Pass",
+        "ordinal": null
+    }
+]
