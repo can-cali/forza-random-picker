@@ -7,9 +7,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from PySide6.QtCore import QSignalBlocker
+from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt
+
 from forza_picker.car import Car
 from forza_picker.picker import filter_cars, pick_random_car
-from PySide6.QtCore import QSignalBlocker
+
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PLACEHOLDER_PATH = PROJECT_ROOT / "assets" / "car_placeholder.png"
+
 
 
 class MainWindow(QMainWindow):
@@ -20,6 +29,31 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Forza Random Car Picker")
         self.resize(500, 300)
+
+        # Car Image
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignCenter)
+        placeholder_pixmap = QPixmap(str(PLACEHOLDER_PATH))
+        placeholder_pixmap = placeholder_pixmap.scaled(
+            500,
+            280,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+
+        self.image_label.setPixmap(placeholder_pixmap)
+
+        # PI image
+        self.pi_label = QLabel("-")
+        self.pi_label.setAlignment(Qt.AlignCenter)
+
+        # Name
+        self.name_label = QLabel("No car selected")
+        self.name_label.setAlignment(Qt.AlignCenter)
+
+        # Car Type
+        self.type_label = QLabel("")
+        self.type_label.setAlignment(Qt.AlignCenter)
 
         # Class Selector
         self.class_combo = QComboBox()
@@ -61,6 +95,10 @@ class MainWindow(QMainWindow):
         self.result_label = QLabel("No car selected")
 
         layout = QVBoxLayout()
+        layout.addWidget(self.image_label)
+        layout.addWidget(self.pi_label)
+        layout.addWidget(self.name_label)
+        layout.addWidget(self.type_label)
         layout.addWidget(self.class_combo)
         layout.addWidget(self.make_combo)
         layout.addWidget(self.country_combo)
@@ -110,22 +148,10 @@ class MainWindow(QMainWindow):
                 self.make_combo.setEnabled(False)
             '''
     def pick_car(self):
-        selected_class = self.class_combo.currentText()
-        selected_make = self.make_combo.currentText()
-        selected_country = self.country_combo.currentText()
-        selected_type = self.type_combo.currentText()
-
-        if selected_class == "Any":
-            selected_class = None
-
-        if selected_make == "Any":
-            selected_make = None
-
-        if selected_country == "Any":
-            selected_country = None
-
-        if selected_type == "Any":
-            selected_type = None
+        selected_class = self.combo_value(self.class_combo)
+        selected_make = self.combo_value(self.make_combo)
+        selected_country = self.combo_value(self.country_combo)
+        selected_type = self.combo_value(self.type_combo)
 
         filtered_cars = filter_cars(
             self.cars,
@@ -138,12 +164,21 @@ class MainWindow(QMainWindow):
         car = pick_random_car(filtered_cars)
 
         if car is None:
-            self.result_label.setText("No matching cars found.")
+            self.pi_label.setText("-")
+            self.name_label.setText("No matching cars found.")
+            self.type_label.setText("")
             return
 
-        self.result_label.setText(
-            f"{car.year} {car.make} {car.model}\n"
-            f"Class: {car.car_class} | PI: {car.pi}"
+        self.pi_label.setText(
+            f"{car.car_class} {car.pi}"
+        )
+
+        self.name_label.setText(
+            f"{car.year} {car.make} {car.model}"
+        )
+
+        self.type_label.setText(
+            car.car_type
         )
 
     # helper to not repeat combos for every filter 

@@ -517,7 +517,7 @@
     },
     {
         "make": "Audi",
-        "model": "TT RS CoupÃ©",
+        "model": "TT RS Coupé",
         "year": 2010,
         "pi": 593,
         "car_class": "B",
@@ -541,7 +541,7 @@
     },
     {
         "make": "Audi",
-        "model": "RS 5 CoupÃ©",
+        "model": "RS 5 Coupé",
         "year": 2011,
         "pi": 613,
         "car_class": "A",
@@ -553,7 +553,7 @@
     },
     {
         "make": "Audi",
-        "model": "R8 CoupÃ© V10 plus 5.2 FSI quattro",
+        "model": "R8 Coupé V10 plus 5.2 FSI quattro",
         "year": 2013,
         "pi": 694,
         "car_class": "A",
@@ -697,7 +697,7 @@
     },
     {
         "make": "Audi",
-        "model": "R8 CoupÃ© V10 GT RWD",
+        "model": "R8 Coupé V10 GT RWD",
         "year": 2023,
         "pi": 769,
         "car_class": "S1",
@@ -901,7 +901,7 @@
     },
     {
         "make": "BMW",
-        "model": "Z4 M CoupÃ©",
+        "model": "Z4 M Coupé",
         "year": 2008,
         "pi": 579,
         "car_class": "B",
@@ -961,7 +961,7 @@
     },
     {
         "make": "BMW",
-        "model": "M4 CoupÃ©",
+        "model": "M4 Coupé",
         "year": 2014,
         "pi": 679,
         "car_class": "A",
@@ -1009,7 +1009,7 @@
     },
     {
         "make": "BMW",
-        "model": "M2 Competition CoupÃ©",
+        "model": "M2 Competition Coupé",
         "year": 2020,
         "pi": 656,
         "car_class": "A",
@@ -1021,7 +1021,7 @@
     },
     {
         "make": "BMW",
-        "model": "M8 Competition CoupÃ©",
+        "model": "M8 Competition Coupé",
         "year": 2020,
         "pi": 684,
         "car_class": "A",
@@ -1033,7 +1033,7 @@
     },
     {
         "make": "BMW",
-        "model": "M4 Competition CoupÃ©",
+        "model": "M4 Competition Coupé",
         "year": 2021,
         "pi": 666,
         "car_class": "A",
@@ -1045,7 +1045,7 @@
     },
     {
         "make": "BMW",
-        "model": "M4 Competition CoupÃ© Welcome Pack",
+        "model": "M4 Competition Coupé Welcome Pack",
         "year": 2021,
         "pi": 800,
         "car_class": "S1",
@@ -1645,7 +1645,7 @@
     },
     {
         "make": "DeBerti",
-        "model": "Toyota Tacoma TRD âThe Performance Truckâ",
+        "model": "Toyota Tacoma TRD ‘The Performance Truck’",
         "year": 2019,
         "pi": 717,
         "car_class": "S1",
@@ -3913,7 +3913,7 @@
     },
     {
         "make": "Lamborghini",
-        "model": "MurciÃ©lago LP 670-4 SV",
+        "model": "Murciélago LP 670-4 SV",
         "year": 2010,
         "pi": 707,
         "car_class": "S1",
@@ -3973,7 +3973,7 @@
     },
     {
         "make": "Lamborghini",
-        "model": "HuracÃ¡n LP 610-4",
+        "model": "Huracán LP 610-4",
         "year": 2014,
         "pi": 738,
         "car_class": "S1",
@@ -4033,7 +4033,7 @@
     },
     {
         "make": "Lamborghini",
-        "model": "HuracÃ¡n EVO",
+        "model": "Huracán EVO",
         "year": 2020,
         "pi": 761,
         "car_class": "S1",
@@ -4045,7 +4045,7 @@
     },
     {
         "make": "Lamborghini",
-        "model": "HuracÃ¡n STO",
+        "model": "Huracán STO",
         "year": 2020,
         "pi": 783,
         "car_class": "S1",
@@ -4057,7 +4057,7 @@
     },
     {
         "make": "Lamborghini",
-        "model": "SiÃ¡n Roadster",
+        "model": "Sián Roadster",
         "year": 2020,
         "pi": 797,
         "car_class": "S1",
@@ -4093,7 +4093,7 @@
     },
     {
         "make": "Lamborghini",
-        "model": "HuracÃ¡n EVO Spyder",
+        "model": "Huracán EVO Spyder",
         "year": 2022,
         "pi": 757,
         "car_class": "S1",
@@ -4105,7 +4105,7 @@
     },
     {
         "make": "Lamborghini",
-        "model": "HuracÃ¡n Sterrato",
+        "model": "Huracán Sterrato",
         "year": 2022,
         "pi": 738,
         "car_class": "S1",
@@ -4117,7 +4117,7 @@
     },
     {
         "make": "Lamborghini",
-        "model": "HuracÃ¡n Tecnica",
+        "model": "Huracán Tecnica",
         "year": 2022,
         "pi": 747,
         "car_class": "S1",
@@ -4669,7 +4669,7 @@
     },
     {
         "make": "McLaren",
-        "model": "12C CoupÃ©",
+        "model": "12C Coupé",
         "year": 2011,
         "pi": 727,
         "car_class": "S1",
@@ -4705,7 +4705,7 @@
     },
     {
         "make": "McLaren",
-        "model": "570S CoupÃ©",
+        "model": "570S Coupé",
         "year": 2015,
         "pi": 721,
         "car_class": "S1",
@@ -4717,7 +4717,7 @@
     },
     {
         "make": "McLaren",
-        "model": "600LT CoupÃ©",
+        "model": "600LT Coupé",
         "year": 2018,
         "pi": 780,
         "car_class": "S1",
@@ -4753,7 +4753,7 @@
     },
     {
         "make": "McLaren",
-        "model": "765LT CoupÃ©",
+        "model": "765LT Coupé",
         "year": 2021,
         "pi": 829,
         "car_class": "S2",
@@ -4801,7 +4801,7 @@
     },
     {
         "make": "Mercedes-AMG",
-        "model": "C 63 S CoupÃ©",
+        "model": "C 63 S Coupé",
         "year": 2016,
         "pi": 645,
         "car_class": "A",
@@ -4837,7 +4837,7 @@
     },
     {
         "make": "Mercedes-AMG",
-        "model": "GT 4-Door CoupÃ©",
+        "model": "GT 4-Door Coupé",
         "year": 2018,
         "pi": 664,
         "car_class": "A",
@@ -4909,7 +4909,7 @@
     },
     {
         "make": "Mercedes-Benz",
-        "model": "300 SL CoupÃ©",
+        "model": "300 SL Coupé",
         "year": 1954,
         "pi": 388,
         "car_class": "D",
@@ -4993,7 +4993,7 @@
     },
     {
         "make": "Mercedes-Benz",
-        "model": "C 63 AMG CoupÃ© Black Series",
+        "model": "C 63 AMG Coupé Black Series",
         "year": 2012,
         "pi": 654,
         "car_class": "A",
@@ -6505,7 +6505,7 @@
     },
     {
         "make": "Renault",
-        "model": "MÃ©gane R26.R",
+        "model": "Mégane R26.R",
         "year": 2008,
         "pi": 561,
         "car_class": "B",

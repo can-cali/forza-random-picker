@@ -21,6 +21,8 @@ def fetch_car_list_page() -> str:
 
     response.raise_for_status()
 
+    response.encoding = "utf-8"
+
     return response.text
 
 
