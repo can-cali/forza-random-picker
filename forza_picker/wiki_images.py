@@ -1,13 +1,15 @@
 import requests
-from forza_picker.car import Car
+from pathlib import Path
 import re
 import unicodedata
+from forza_picker.car import Car
 from forza_picker.image_aliases import IMAGE_ALIASES
 
 
 
 
-
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+IMAGE_CACHE_DIR = PROJECT_ROOT / "cache" / "car_images"
 FANDOM_API_URL = "https://forza.fandom.com/api.php"
 
 
@@ -143,3 +145,54 @@ def find_wiki_title_for_car(
         return IMAGE_ALIASES[alias_key]
 
     return None
+
+
+def download_image(
+    image_url: str,
+    destination: Path,
+) -> None:
+    response = requests.get(
+        image_url,
+        timeout=15,
+    )
+
+    response.raise_for_status()
+
+    destination.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    destination.write_bytes(response.content)
+
+
+def get_cached_image_path(file_name: str) -> Path:
+    return IMAGE_CACHE_DIR / file_name
+
+
+def get_or_download_wiki_image(
+    wiki_title: str,
+) -> Path | None:
+    file_name = cache_file_name_from_wiki_title(wiki_title)
+    destination = get_cached_image_path(file_name)
+
+    if destination.exists():
+        return destination
+
+    image_url = get_wiki_image_url(wiki_title)
+
+    if image_url is None:
+        return None
+
+    try:
+        download_image(
+            image_url,
+            destination,
+        )
+    except requests.RequestException:
+        return None
+
+    return destination
+
+def cache_file_name_from_wiki_title(wiki_title: str) -> str:
+    return wiki_title.removeprefix("File:")

@@ -1,4 +1,33 @@
+# Virtual environment
 .venv/
 venv/
-**/__pycache__/
-*.pyc
+
+# Python cache / compiled files
+__pycache__/
+*.py[cod]
+
+# Pytest cache
+.pytest_cache/
+
+# Type checker / tooling caches
+.mypy_cache/
+.ruff_cache/
+
+# IDE / editor settings
+.vscode/
+.idea/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Generated/downloaded car image cache
+cache/
+
+# Build / distribution output
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
