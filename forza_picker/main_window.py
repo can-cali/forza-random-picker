@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt
 
 from forza_picker.car import Car
 from forza_picker.picker import filter_cars, pick_random_car
+from forza_picker.wiki_images import get_local_car_image_path
 
 from pathlib import Path
 
@@ -22,10 +23,11 @@ PLACEHOLDER_PATH = PROJECT_ROOT / "assets" / "car_placeholder.png"
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, cars: list[Car]):
+    def __init__(self, cars: list[Car], image_map: dict[str, str]):
         super().__init__()
 
         self.cars = cars
+        self.image_map = image_map
 
         self.setWindowTitle("Forza Random Car Picker")
         self.resize(500, 300)
@@ -33,15 +35,14 @@ class MainWindow(QMainWindow):
         # Car Image
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
-        placeholder_pixmap = QPixmap(str(PLACEHOLDER_PATH))
-        placeholder_pixmap = placeholder_pixmap.scaled(
+        self.placeholder_pixmap = QPixmap(str(PLACEHOLDER_PATH)).scaled(
             500,
             280,
             Qt.KeepAspectRatio,
             Qt.SmoothTransformation,
         )
 
-        self.image_label.setPixmap(placeholder_pixmap)
+        self.image_label.setPixmap(self.placeholder_pixmap)
 
         # PI image
         self.pi_label = QLabel("-")
@@ -180,6 +181,27 @@ class MainWindow(QMainWindow):
         self.type_label.setText(
             car.car_type
         )
+
+        image_path = get_local_car_image_path(
+            car,
+            self.image_map,
+        )
+
+        if image_path is None:
+            self.image_label.setPixmap(
+                self.placeholder_pixmap
+            )
+        else:
+            pixmap = QPixmap(str(image_path))
+
+            pixmap = pixmap.scaled(
+                500,
+                280,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+
+            self.image_label.setPixmap(pixmap)
 
     # helper to not repeat combos for every filter 
     def combo_value(self, combo: QComboBox) -> str | None:

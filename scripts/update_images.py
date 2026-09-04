@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from forza_picker.catalog import load_cars
 from forza_picker.wiki_images import (
@@ -9,6 +10,7 @@ from forza_picker.wiki_images import (
     get_cached_image_path,
     cache_file_name_from_wiki_title,
     get_or_download_wiki_image,
+    car_image_key,
 )
 
 
@@ -30,6 +32,8 @@ def main():
     missing = []
     unmatched = []
 
+    image_map = {}
+
     for car in cars:
         wiki_title = find_wiki_title_for_car(
             car,
@@ -42,6 +46,9 @@ def main():
 
         file_name = cache_file_name_from_wiki_title(wiki_title)
 
+        key = car_image_key(car)
+        image_map[key] = file_name
+
         image_path = get_cached_image_path(
             file_name,
         )
@@ -51,12 +58,22 @@ def main():
         else:
             missing.append(car)
 
+    image_map_path = project_root / "data" / "image_map.json"
+
+    with open(image_map_path, "w", encoding="utf-8") as file:
+        json.dump(
+            image_map,
+            file,
+            indent=4,
+            ensure_ascii=False,
+        )
+
     print(f"Catalog cars: {len(cars)}")
     print(f"Cached images: {len(cached)}")
     print(f"Missing images: {len(missing)}")
     print(f"Unmatched cars: {len(unmatched)}")
 
-    print("\nTesting downloads for the missing cars:")
+    print("\nDownloading missing images:")
 
     downloaded = []
     failed = []

@@ -2,6 +2,7 @@ import requests
 from pathlib import Path
 import re
 import unicodedata
+import json
 from forza_picker.car import Car
 from forza_picker.image_aliases import IMAGE_ALIASES
 
@@ -196,3 +197,28 @@ def get_or_download_wiki_image(
 
 def cache_file_name_from_wiki_title(wiki_title: str) -> str:
     return wiki_title.removeprefix("File:")
+
+def car_image_key(car: Car) -> str:
+    return f"{car.year}|{car.make}|{car.model}"
+
+def load_image_map(file_path: str | Path) -> dict[str, str]:
+    with open(file_path, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+def get_local_car_image_path(
+        car : Car,
+        image_map : dict[str, str],
+) -> Path | None:
+    key = car_image_key(car)
+
+    file_name = image_map.get(key)
+
+    if file_name is None:
+        return None
+
+    image_path = get_cached_image_path(file_name)
+
+    if not image_path.exists():
+        return None
+
+    return image_path

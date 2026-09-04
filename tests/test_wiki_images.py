@@ -1,5 +1,6 @@
 from forza_picker.car import Car
 from forza_picker.wiki_images import find_wiki_title_for_car
+from forza_picker.wiki_images import get_local_car_image_path
 
 
 def test_find_wiki_title_by_normalized_name():
@@ -56,6 +57,25 @@ def test_find_wiki_title_returns_none_when_unknown():
     result = find_wiki_title_for_car(
         car,
         wiki_lookup={},
+    )
+
+    assert result is None
+
+def test_get_local_car_image_path_returns_none_when_not_mapped():
+    car = Car(
+        make="Fake",
+        model="Imaginary Car",
+        year=2026,
+        pi=500,
+        car_class="B",
+        country="Nowhere",
+        car_type="Unknown",
+        is_in_autoshow=False,
+    )
+
+    result = get_local_car_image_path(
+        car,
+        image_map={},
     )
 
     assert result is None
