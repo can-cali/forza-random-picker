@@ -8,6 +8,8 @@ def filter_cars(
     country: str | None = None,
     car_type: str | None = None,
     make: str | None = None,
+    is_in_autoshow: bool | None = None,
+    dlcs: set[str | None] | None = None,
 ) -> list[Car]:
     result = []
 
@@ -22,6 +24,15 @@ def filter_cars(
             continue
 
         if make is not None and car.make != make:
+            continue
+
+        if (
+            is_in_autoshow is not None
+            and car.is_in_autoshow != is_in_autoshow
+        ):
+            continue
+
+        if dlcs is not None and car.dlc not in dlcs:
             continue
 
         result.append(car)
