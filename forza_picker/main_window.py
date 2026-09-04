@@ -7,13 +7,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from PySide6.QtCore import QSignalBlocker
+from PySide6.QtCore import QSignalBlocker, QThreadPool
 from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt
 
 from forza_picker.car import Car
 from forza_picker.picker import filter_cars, pick_random_car
-from forza_picker.wiki_images import get_local_car_image_path
+from forza_picker.wiki_images import (
+    get_local_car_image_path,
+    car_image_key,
+)
+
+from forza_picker.image_worker import ImageDownloadWorker
 
 from pathlib import Path
 
@@ -28,6 +33,11 @@ class MainWindow(QMainWindow):
 
         self.cars = cars
         self.image_map = image_map
+
+        self.current_car_key = None
+        self.image_thread_pool = QThreadPool()
+        self.image_thread_pool.setMaxThreadCount(3)
+        self.downloading_car_keys = set()
 
         self.setWindowTitle("Forza Random Car Picker")
         self.resize(500, 300)
@@ -182,6 +192,9 @@ class MainWindow(QMainWindow):
             car.car_type
         )
 
+        current_key = car_image_key(car)
+        self.current_car_key = current_key
+
         image_path = get_local_car_image_path(
             car,
             self.image_map,
@@ -191,6 +204,18 @@ class MainWindow(QMainWindow):
             self.image_label.setPixmap(
                 self.placeholder_pixmap
             )
+
+            file_name = self.image_map.get(
+                current_key
+            )
+
+            if file_name is not None:
+                wiki_title = f"File:{file_name}"
+
+                self.start_image_download(
+                    current_key,
+                    wiki_title,
+                )
         else:
             pixmap = QPixmap(str(image_path))
 
@@ -301,3 +326,54 @@ class MainWindow(QMainWindow):
             self.type_combo,
             available_types
         )
+
+    def start_image_download(
+        self,
+        car_key: str,
+        wiki_title: str,
+    ):
+        if car_key in self.downloading_car_keys:
+            return
+
+        self.downloading_car_keys.add(car_key)
+
+        worker = ImageDownloadWorker(
+            car_key,
+            wiki_title,
+        )
+
+        worker.signals.image_ready.connect(
+            self.handle_downloaded_image
+        )
+
+        self.image_thread_pool.start(worker)
+        
+
+    def handle_downloaded_image(
+        self,
+        car_key: str,
+        image_path,
+    ):
+        self.downloading_car_keys.discard(
+            car_key
+        )
+
+        if image_path is None:
+            return
+
+        if car_key != self.current_car_key:
+            return
+
+        pixmap = QPixmap(str(image_path))
+
+        if pixmap.isNull():
+            return
+
+        pixmap = pixmap.scaled(
+            500,
+            280,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+
+        self.image_label.setPixmap(pixmap)
