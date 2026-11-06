@@ -1,4 +1,15 @@
+import hashlib
+from urllib.parse import quote, urlsplit
+from contextlib import contextmanager
+
+import os
+import tempfile
+import threading
+
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from PySide6.QtGui import QImage
 from pathlib import Path
 import re
 import unicodedata
@@ -14,6 +25,59 @@ IMAGE_CACHE_DIR = PROJECT_ROOT / "cache" / "car_images"
 FANDOM_API_URL = "https://forza.fandom.com/api.php"
 
 
+_sessions = threading.local()
+
+
+def http_session():
+    """Reuse connections per worker; retry only transient, idempotent GETs."""
+    if not hasattr(_sessions, "session"):
+        session = requests.Session()
+        retry = Retry(total=3, backoff_factor=0.5,
+                      status_forcelist=(429, 500, 502, 503, 504),
+                      allowed_methods=frozenset({"GET"}), respect_retry_after_header=True)
+        session.mount("https://", HTTPAdapter(max_retries=retry))
+        session.headers["User-Agent"] = "ForzaRandomPicker/1.0 (desktop car catalog)"
+        _sessions.session = session
+    return _sessions.session
+
+
+class PhotoProviderChallenge(RuntimeError):
+    """A provider requires browser verification, not another filename guess."""
+    def __init__(self, host):
+        self.host = host
+        super().__init__(f"Photo provider {host} requires browser verification (Cloudflare challenge).")
+
+
+@contextmanager
+def photo_request_scope():
+    """A host circuit breaker scoped to one update, not a permanent blacklist."""
+    previous = getattr(_sessions, 'blocked_hosts', None)
+    _sessions.blocked_hosts = set()
+    try:
+        yield
+    finally:
+        if previous is None:
+            del _sessions.blocked_hosts
+        else:
+            _sessions.blocked_hosts = previous
+
+
+def photo_get(url, **kwargs):
+    host = urlsplit(url).hostname
+    blocked = getattr(_sessions, 'blocked_hosts', set())
+    if host in blocked:
+        raise PhotoProviderChallenge(host)
+    response = http_session().get(url, **kwargs)
+    if getattr(response, 'headers', {}).get('cf-mitigated', '').lower() == 'challenge':
+        blocked.add(host)
+        raise PhotoProviderChallenge(host)
+    return response
+
+
+def is_valid_image(path: Path) -> bool:
+    return path.is_file() and not QImage(str(path)).isNull()
+
+
 def get_wiki_image_url(file_name: str) -> str | None:
     params = {
         "action": "query",
@@ -23,7 +87,7 @@ def get_wiki_image_url(file_name: str) -> str | None:
         "titles": file_name,
     }
 
-    response = requests.get(
+    response = photo_get(
         FANDOM_API_URL,
         params=params,
         timeout=10,
@@ -32,6 +96,8 @@ def get_wiki_image_url(file_name: str) -> str | None:
     response.raise_for_status()
 
     data = response.json()
+    if "error" in data:
+        raise ValueError(f"Wiki API error: {data['error']}")
 
     pages = data["query"]["pages"]
     page = next(iter(pages.values()))
@@ -59,7 +125,7 @@ def get_fh6_thumbnail_titles() -> list[str]:
     titles = []
 
     while True:
-        response = requests.get(
+        response = photo_get(
             FANDOM_API_URL,
             params=params,
             timeout=10,
@@ -103,7 +169,7 @@ def normalize_name(name: str) -> str:
 
 def normalize_wiki_title(title: str) -> str:
     title = title.removeprefix("File:FH6 ")
-    title = title.removesuffix(".png")
+    title = re.sub(r"\.(png|jpe?g|webp)$", "", title, flags=re.IGNORECASE)
 
     return normalize_name(title)
 
@@ -130,20 +196,18 @@ def find_wiki_title_for_car(
     car: Car,
     wiki_lookup: dict[str, str],
 ) -> str | None:
-    key = normalize_car_name(car)
-
-    if key in wiki_lookup:
-        return wiki_lookup[key]
-
-    key_with_year = normalize_car_name_with_year(car)
-
-    if key_with_year in wiki_lookup:
-        return wiki_lookup[key_with_year]
-
-    alias_key = car_alias_key(car)
-
-    if alias_key in IMAGE_ALIASES:
-        return IMAGE_ALIASES[alias_key]
+    # Explicit exceptions and exact year variants take priority over generic names.
+    alias = IMAGE_ALIASES.get(car_alias_key(car))
+    if alias:
+        return alias
+    candidates = (
+        normalize_car_name_with_year(car),
+        normalize_name(f"{car.year} {car.make} {car.model}"),
+        normalize_car_name(car),
+    )
+    for key in candidates:
+        if key in wiki_lookup:
+            return wiki_lookup[key]
 
     return None
 
@@ -152,48 +216,85 @@ def download_image(
     image_url: str,
     destination: Path,
 ) -> None:
-    response = requests.get(
+    response = photo_get(
         image_url,
         timeout=15,
     )
 
     response.raise_for_status()
 
-    destination.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    destination.write_bytes(response.content)
+    if QImage.fromData(response.content).isNull():
+        raise ValueError("The server returned an unreadable image")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    # Each worker owns its temporary file, including when two request the same car.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as file:
+            temporary = Path(file.name)
+            file.write(response.content)
+        os.replace(temporary, destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def get_cached_image_path(file_name: str) -> Path:
+    if Path(file_name).name != file_name or "\\" in file_name:
+        raise ValueError("Invalid image filename")
     return IMAGE_CACHE_DIR / file_name
 
 
-def get_or_download_wiki_image(
-    wiki_title: str,
-) -> Path | None:
-    file_name = cache_file_name_from_wiki_title(wiki_title)
-    destination = get_cached_image_path(file_name)
+def direct_cdn_url(wiki_title: str) -> str:
+    """MediaWiki hashes the canonical, UTF-8 filename, before URL encoding."""
+    filename = cache_file_name_from_wiki_title(wiki_title).replace(" ", "_")
+    digest = hashlib.md5(filename.encode("utf-8"), usedforsecurity=False).hexdigest()
+    return (f"https://static.wikia.nocookie.net/forzamotorsport/images/"
+            f"{digest[0]}/{digest[:2]}/{quote(filename, safe='')}/revision/latest")
 
-    if destination.exists():
+
+def candidate_wiki_titles(car: Car) -> list[str]:
+    """Bounded exact-name variants; never guess a different model or year."""
+    name = f"{car.make} {car.model}"
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    names = list(dict.fromkeys([name, plain, plain.replace("#", "").replace("'", "")]))
+    titles = []
+    for variant in names:
+        for label in (f"{variant} {car.year}", variant, f"{car.year} {variant}"):
+            title = f"File:FH6 {label}.png"
+            # Some wiki names contain slashes; don't construct unsafe local paths.
+            filename = cache_file_name_from_wiki_title(title)
+            if "/" not in filename and "\\" not in filename:
+                titles.append(title)
+    return list(dict.fromkeys(titles))
+
+
+def get_or_download_wiki_image(wiki_title: str, *, api_fallback: bool = True) -> Path | None:
+    destination = get_cached_image_path(cache_file_name_from_wiki_title(wiki_title))
+    if is_valid_image(destination):
         return destination
-
-    image_url = get_wiki_image_url(wiki_title)
-
-    if image_url is None:
-        return None
-
+    direct_error = None
     try:
-        download_image(
-            image_url,
-            destination,
-        )
-    except requests.RequestException:
-        return None
+        download_image(direct_cdn_url(wiki_title), destination)
+        return destination
+    except requests.HTTPError as exc:
+        if not api_fallback:
+            if exc.response is not None and exc.response.status_code == 404:
+                return None
+            raise
+        direct_error = exc
+    except (requests.RequestException, ValueError) as exc:
+        if not api_fallback:
+            raise
+        direct_error = exc
+    try:
+        image_url = get_wiki_image_url(wiki_title)
+        if image_url is None:
+            return None
+        download_image(image_url, destination)
+        return destination
+    except (requests.RequestException, ValueError) as exc:
+        raise RuntimeError(f"Direct CDN: {direct_error}; API fallback: {exc}") from exc
 
-    return destination
 
 def cache_file_name_from_wiki_title(wiki_title: str) -> str:
     return wiki_title.removeprefix("File:")
@@ -218,7 +319,7 @@ def get_local_car_image_path(
 
     image_path = get_cached_image_path(file_name)
 
-    if not image_path.exists():
+    if not is_valid_image(image_path):
         return None
 
     return image_path

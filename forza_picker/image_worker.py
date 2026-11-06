@@ -21,11 +21,11 @@ class ImageDownloadWorker(QRunnable):
         self.signals = ImageDownloadSignals()
 
     def run(self):
-        image_path = get_or_download_wiki_image(
-            self.wiki_title
-        )
-
-        self.signals.image_ready.emit(
-            self.car_key,
-            image_path,
-        )
+        image_path = None
+        try:
+            image_path = get_or_download_wiki_image(self.wiki_title)
+        except Exception:
+            # Always finish so the window clears its in-flight marker and can retry.
+            pass
+        finally:
+            self.signals.image_ready.emit(self.car_key, image_path)
