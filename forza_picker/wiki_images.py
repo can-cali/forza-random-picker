@@ -1,5 +1,6 @@
 import hashlib
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
+from contextlib import contextmanager
 
 import os
 import tempfile
@@ -40,6 +41,39 @@ def http_session():
     return _sessions.session
 
 
+class PhotoProviderChallenge(RuntimeError):
+    """A provider requires browser verification, not another filename guess."""
+    def __init__(self, host):
+        self.host = host
+        super().__init__(f"Photo provider {host} requires browser verification (Cloudflare challenge).")
+
+
+@contextmanager
+def photo_request_scope():
+    """A host circuit breaker scoped to one update, not a permanent blacklist."""
+    previous = getattr(_sessions, 'blocked_hosts', None)
+    _sessions.blocked_hosts = set()
+    try:
+        yield
+    finally:
+        if previous is None:
+            del _sessions.blocked_hosts
+        else:
+            _sessions.blocked_hosts = previous
+
+
+def photo_get(url, **kwargs):
+    host = urlsplit(url).hostname
+    blocked = getattr(_sessions, 'blocked_hosts', set())
+    if host in blocked:
+        raise PhotoProviderChallenge(host)
+    response = http_session().get(url, **kwargs)
+    if getattr(response, 'headers', {}).get('cf-mitigated', '').lower() == 'challenge':
+        blocked.add(host)
+        raise PhotoProviderChallenge(host)
+    return response
+
+
 def is_valid_image(path: Path) -> bool:
     return path.is_file() and not QImage(str(path)).isNull()
 
@@ -53,7 +87,7 @@ def get_wiki_image_url(file_name: str) -> str | None:
         "titles": file_name,
     }
 
-    response = http_session().get(
+    response = photo_get(
         FANDOM_API_URL,
         params=params,
         timeout=10,
@@ -91,7 +125,7 @@ def get_fh6_thumbnail_titles() -> list[str]:
     titles = []
 
     while True:
-        response = http_session().get(
+        response = photo_get(
             FANDOM_API_URL,
             params=params,
             timeout=10,
@@ -182,7 +216,7 @@ def download_image(
     image_url: str,
     destination: Path,
 ) -> None:
-    response = http_session().get(
+    response = photo_get(
         image_url,
         timeout=15,
     )

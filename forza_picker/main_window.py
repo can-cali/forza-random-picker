@@ -328,7 +328,7 @@ class MainWindow(QMainWindow):
             return
         dialog = QMessageBox(self)
         dialog.setWindowTitle("Photo download report")
-        dialog.setText("Expand details for the last photo update, including unmatched cars and download errors.")
+        dialog.setText("Expand details for the last photo update, including blocked providers, unmatched cars and download errors.")
         dialog.setDetailedText(report)
         dialog.exec()
 
@@ -362,6 +362,7 @@ class MainWindow(QMainWindow):
         self.check_updates_action.setEnabled(True)
         self.retry_photos_action.setEnabled(True)
         self.statusBar().showMessage(message)
+        self.statusBar().setToolTip(message)
 
     def fail_update(self, message):
         self.update_worker = None

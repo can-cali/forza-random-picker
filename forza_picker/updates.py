@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, QRunnable, Signal
 
 from forza_picker.car import Car
 from forza_picker.wiki_images import (
+    PhotoProviderChallenge, photo_request_scope,
     car_image_key, cache_file_name_from_wiki_title, find_wiki_title_for_car,
     get_base_thumbnail_titles, get_fh6_thumbnail_titles,
     get_or_download_wiki_image, normalize_wiki_title, get_cached_image_path, is_valid_image, candidate_wiki_titles,
@@ -73,6 +74,10 @@ class CatalogUpdateWorker(QRunnable):
         self.signals = UpdateSignals()
 
     def run(self):
+        with photo_request_scope():
+            self._run_update()
+
+    def _run_update(self):
         try:
             self.signals.progress.emit('Checking missing photos…' if self.photos_only else 'Checking the official car list…')
             fetched = [] if self.photos_only else parse_catalog(fetch_car_list_page())
@@ -81,7 +86,7 @@ class CatalogUpdateWorker(QRunnable):
             merged.update({car_image_key(car): car for car in fetched})
             cars = list(merged.values())
             images = dict(self.image_map)
-            report = {"cached": 0, "downloaded": 0, "unmatched": [], "failed": [], "lookup_error": None, "unmatched_attempts": {}}
+            report = {"cached": 0, "downloaded": 0, "unmatched": [], "failed": [], "lookup_error": None, "unmatched_attempts": {}, "blocked": [], "blocked_providers": {}}
             missing = []
             for car in cars:
                 filename = images.get(car_image_key(car))
@@ -95,10 +100,16 @@ class CatalogUpdateWorker(QRunnable):
                     self.signals.progress.emit('Looking up missing car photos…')
                     lookup = {normalize_wiki_title(title): title for title in
                               get_base_thumbnail_titles(get_fh6_thumbnail_titles())}
+                except PhotoProviderChallenge as exc:
+                    report["lookup_error"] = str(exc)
+                    report["blocked_providers"][exc.host] = str(exc)
                 except Exception as exc:
                     report["lookup_error"] = str(exc)
             for index, car in enumerate(missing, 1):
                 key = car_image_key(car)
+                if 'static.wikia.nocookie.net' in report['blocked_providers']:
+                    report['blocked'].append(key)
+                    continue
                 # Try the saved filename even when the category API is unavailable.
                 titles = []
                 if key in images:
@@ -123,6 +134,14 @@ class CatalogUpdateWorker(QRunnable):
                         images[key] = cache_file_name_from_wiki_title(title)
                         report["downloaded"] += 1
                         break
+                    except PhotoProviderChallenge as exc:
+                        report["blocked_providers"][exc.host] = str(exc)
+                        # An API challenge does not imply the CDN is blocked.
+                        # A CDN challenge stops all further filename probes.
+                        if exc.host == 'static.wikia.nocookie.net':
+                            report['blocked'].append(key)
+                            break
+                        errors.append(str(exc))
                     except Exception as exc:
                         errors.append(f'{title}: {exc}')
                 else:
@@ -135,11 +154,13 @@ class CatalogUpdateWorker(QRunnable):
             report_path = self.snapshot_path.with_name('photo-report.json')
             message = (f'Catalog updated: {added} new cars. Photos: {report["cached"]} cached, '
                        f'{report["downloaded"]} downloaded, {len(report["unmatched"])} unmatched, '
-                       f'{len(report["failed"])} failed.')
+                       f'{len(report["failed"])} failed, {len(report["blocked"])} blocked.')
             try:
                 report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
             except OSError as exc:
                 message += f' Could not save photo report: {exc}'
+            if report['blocked_providers']:
+                message = 'Photo provider requires browser verification; requests to challenged hosts stopped. ' + message
             if report["lookup_error"]:
                 message += ' Wiki lookup unavailable; existing mappings were still tried.'
             self.signals.completed.emit(cars, images, message)

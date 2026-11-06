@@ -271,3 +271,44 @@ def test_api_failure_keeps_direct_failure_details(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match='Direct CDN: 403 Forbidden; API fallback: 402 API unavailable'):
         images.get_or_download_wiki_image('File:known.png')
     assert not list(tmp_path.iterdir())
+
+
+def test_challenge_blocks_host_until_next_update(monkeypatch):
+    import pytest
+    import requests
+    from forza_picker import wiki_images as images
+    calls = []
+    class Session:
+        def get(self, url, **kwargs):
+            calls.append(url)
+            response = requests.Response()
+            response.status_code = 403
+            response.headers['cf-mitigated'] = 'challenge'
+            response._content = b'<title>Just a moment...</title>'
+            return response
+    monkeypatch.setattr(images, 'http_session', lambda: Session())
+    with images.photo_request_scope():
+        for path in ['one.png', 'two.png']:
+            with pytest.raises(images.PhotoProviderChallenge):
+                images.photo_get('https://static.wikia.nocookie.net/' + path)
+        assert len(calls) == 1
+        with pytest.raises(images.PhotoProviderChallenge):
+            images.photo_get('https://forza.fandom.com/api.php')
+        assert len(calls) == 2  # API is a different host, not prematurely blocked.
+    with images.photo_request_scope():
+        with pytest.raises(images.PhotoProviderChallenge):
+            images.photo_get('https://static.wikia.nocookie.net/one.png')
+    assert len(calls) == 3
+
+
+def test_challenge_does_not_attempt_api_fallback(monkeypatch, tmp_path):
+    import pytest
+    from forza_picker import wiki_images as images
+    monkeypatch.setattr(images, 'IMAGE_CACHE_DIR', tmp_path)
+    def blocked(url, path):
+        raise images.PhotoProviderChallenge('static.wikia.nocookie.net')
+    monkeypatch.setattr(images, 'download_image', blocked)
+    monkeypatch.setattr(images, 'get_wiki_image_url', lambda title: pytest.fail('Do not fall back after a challenge'))
+    with pytest.raises(images.PhotoProviderChallenge):
+        images.get_or_download_wiki_image('File:photo.png')
+    assert not list(tmp_path.iterdir())

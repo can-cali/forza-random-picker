@@ -164,3 +164,52 @@ def test_unmapped_car_can_be_discovered_without_category_api(monkeypatch, tmp_pa
     worker.run()
     assert updates.load_snapshot(tmp_path / 'catalog.json')[1] == {'1987|Ferrari|F40': 'FH6 Ferrari F40.png'}
     assert calls == [('File:FH6 Ferrari F40 1987.png', False), ('File:FH6 Ferrari F40.png', False)]
+
+
+def test_challenge_stops_photo_loop_without_losing_catalog(monkeypatch, tmp_path, car):
+    from forza_picker import wiki_images as images
+    import json
+    monkeypatch.setattr(updates, 'get_fh6_thumbnail_titles', lambda: [])
+    calls = []
+    import requests
+    class Session:
+        def get(self, url, **kwargs):
+            calls.append(url)
+            response = requests.Response()
+            response.status_code = 403
+            response.headers['cf-mitigated'] = 'challenge'
+            response._content = b'<title>Just a moment...</title>'
+            return response
+    monkeypatch.setattr(images, 'IMAGE_CACHE_DIR', tmp_path / 'images')
+    monkeypatch.setattr(images, 'http_session', lambda: Session())
+    monkeypatch.setattr(updates, 'get_or_download_wiki_image', images.get_or_download_wiki_image)
+    cars = [car, replace(car, model='New model'), replace(car, model='Another model')]
+    worker = updates.CatalogUpdateWorker(cars, {}, tmp_path / 'catalog.json', photos_only=True)
+    completed = []
+    worker.signals.completed.connect(lambda *args: completed.append(args))
+    worker.run()
+    assert len(calls) == 1
+    assert len(completed) == 1
+    report = json.loads((tmp_path / 'photo-report.json').read_text())
+    assert report['blocked'] == [images.car_image_key(c) for c in cars]
+    assert report['failed'] == []
+    assert report['unmatched'] == []
+    assert report['downloaded'] == 0
+    assert '3 blocked' in completed[0][2]
+    assert 'browser verification' in completed[0][2]
+    assert updates.load_snapshot(tmp_path / 'catalog.json')[0] == cars
+
+
+def test_api_challenge_still_allows_direct_cdn_download(monkeypatch, tmp_path, car):
+    from forza_picker import wiki_images as images
+    import json
+    def blocked():
+        raise images.PhotoProviderChallenge('forza.fandom.com')
+    monkeypatch.setattr(updates, 'get_fh6_thumbnail_titles', blocked)
+    monkeypatch.setattr(updates, 'get_or_download_wiki_image', lambda title, **kwargs: tmp_path / 'photo.png')
+    worker = updates.CatalogUpdateWorker([car], {'1987|Ferrari|F40': 'known.png'}, tmp_path / 'catalog.json', photos_only=True)
+    worker.run()
+    report = json.loads((tmp_path / 'photo-report.json').read_text())
+    assert report['downloaded'] == 1
+    assert report['blocked'] == []
+    assert 'forza.fandom.com' in report['blocked_providers']
