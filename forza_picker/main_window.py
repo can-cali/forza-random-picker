@@ -2,12 +2,16 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QPointF,
+    QSettings,
+    QStandardPaths,
+    QTimer,
     QSignalBlocker,
     QThreadPool,
     Qt,
     Signal,
 )
 from PySide6.QtGui import (
+    QAction,
     QColor,
     QFontDatabase,
     QLinearGradient,
@@ -23,6 +27,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QMenu,
     QPushButton,
     QSizePolicy,
@@ -32,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+from forza_picker.updates import CatalogUpdateWorker
 from forza_picker.car import Car
 from forza_picker.image_worker import ImageDownloadWorker
 from forza_picker.picker import filter_cars, pick_random_car
@@ -277,6 +283,75 @@ class MainWindow(QMainWindow):
         self.build_ui()
         self.connect_signals()
         self.update_filter_options()
+        self.setup_updates()
+
+    def setup_updates(self):
+        self.settings = QSettings("ForzaRandomPicker", "ForzaRandomPicker")
+        self.snapshot_path = Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)) / "catalog.json"
+        self.update_worker = None
+        self.update_pool = QThreadPool(self)
+        self.update_pool.setMaxThreadCount(1)
+        menu = self.menuBar().addMenu("Updates")
+        self.check_updates_action = menu.addAction("Update car list and photos now")
+        self.check_updates_action.triggered.connect(self.check_for_updates)
+        self.auto_updates_action = QAction("Check for updates at startup", self)
+        self.auto_updates_action.setCheckable(True)
+        self.auto_updates_action.setChecked(self.settings.value("updates/automatic", False, type=bool))
+        self.auto_updates_action.toggled.connect(self.save_update_preference)
+        menu.addAction(self.auto_updates_action)
+        QTimer.singleShot(0, self.first_start_update_check)
+
+    def save_update_preference(self, enabled):
+        self.settings.setValue("updates/automatic", enabled)
+        self.settings.sync()
+
+    def first_start_update_check(self):
+        if not self.settings.contains("updates/automatic"):
+            answer = QMessageBox.question(self, "Automatic updates",
+                "Check for new cars and download missing photos whenever the app starts?\n"
+                "You can change this later in the Updates menu.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            self.auto_updates_action.setChecked(answer == QMessageBox.Yes)
+            self.save_update_preference(answer == QMessageBox.Yes)
+        if self.auto_updates_action.isChecked():
+            self.check_for_updates()
+
+    def check_for_updates(self):
+        if self.update_worker is not None:
+            return
+        self.check_updates_action.setEnabled(False)
+        self.update_worker = CatalogUpdateWorker(self.cars, self.image_map, self.snapshot_path)
+        self.update_worker.signals.progress.connect(self.statusBar().showMessage)
+        self.update_worker.signals.completed.connect(self.finish_update)
+        self.update_worker.signals.failed.connect(self.fail_update)
+        self.update_pool.start(self.update_worker)
+
+    def finish_update(self, cars, image_map, message):
+        self.cars = cars
+        self.image_map = image_map
+        # Rebuild DLC options to include newly introduced packs.
+        old = self.dlc_filter
+        self.dlc_filter = DlcMultiSelectButton({car.dlc for car in cars if car.dlc is not None})
+        old.parentWidget().layout().replaceWidget(old, self.dlc_filter)
+        old.deleteLater()
+        self.dlc_filter.selectionChanged.connect(self.update_filter_options)
+        self.update_filter_options()
+        self.update_worker = None
+        self.check_updates_action.setEnabled(True)
+        self.statusBar().showMessage(message)
+
+    def fail_update(self, message):
+        self.update_worker = None
+        self.check_updates_action.setEnabled(True)
+        self.statusBar().showMessage(message.replace("\n", " "))
+        QMessageBox.warning(self, "Car update", message)
+
+    def closeEvent(self, event):
+        if self.update_worker is not None:
+            QMessageBox.information(self, "Update in progress", "Please wait for the car update to finish before closing.")
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     @staticmethod
     def resolve_ui_font_family() -> str:
