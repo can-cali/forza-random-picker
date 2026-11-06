@@ -80,3 +80,63 @@ def test_photo_downloads_and_mapping_are_saved(monkeypatch, tmp_path, car):
     worker.run()
     assert requested == [title]
     assert updates.load_snapshot(path)[1] == {'1987|Ferrari|F40': 'FH6 Ferrari F40.png'}
+
+
+def test_existing_mapping_works_when_category_lookup_fails(monkeypatch, tmp_path, car):
+    monkeypatch.setattr(updates, 'fetch_car_list_page', lambda: pytest.fail('Photo retry must not fetch catalog'))
+    def fail():
+        raise RuntimeError('category offline')
+    monkeypatch.setattr(updates, 'get_fh6_thumbnail_titles', fail)
+    requested = []
+    monkeypatch.setattr(updates, 'get_or_download_wiki_image', lambda title: requested.append(title) or tmp_path / 'image.png')
+    worker = updates.CatalogUpdateWorker([car], {'1987|Ferrari|F40': 'known.png'}, tmp_path / 'catalog.json', photos_only=True)
+    worker.run()
+    assert requested == ['File:known.png']
+    import json
+    report = json.loads((tmp_path / 'photo-report.json').read_text())
+    assert report['downloaded'] == 1
+    assert report['lookup_error'] == 'category offline'
+
+
+def test_failed_mapping_falls_back_to_new_match(monkeypatch, tmp_path, car):
+    monkeypatch.setattr(updates, 'get_fh6_thumbnail_titles', lambda: ['File:FH6 Ferrari F40.png'])
+    calls = []
+    def download(title):
+        calls.append(title)
+        if title == 'File:old.png':
+            raise RuntimeError('404 missing')
+        return tmp_path / 'new.png'
+    monkeypatch.setattr(updates, 'get_or_download_wiki_image', download)
+    worker = updates.CatalogUpdateWorker([car], {'1987|Ferrari|F40': 'old.png'}, tmp_path / 'catalog.json', photos_only=True)
+    worker.run()
+    assert calls == ['File:old.png', 'File:FH6 Ferrari F40.png']
+    assert updates.load_snapshot(tmp_path / 'catalog.json')[1]['1987|Ferrari|F40'] == 'FH6 Ferrari F40.png'
+
+
+def test_report_distinguishes_unmatched_and_failed(monkeypatch, tmp_path, car):
+    monkeypatch.setattr(updates, 'get_fh6_thumbnail_titles', lambda: [])
+    def fail(title):
+        raise RuntimeError('HTTP 403 forbidden')
+    monkeypatch.setattr(updates, 'get_or_download_wiki_image', fail)
+    other = replace(car, model='Unknown')
+    worker = updates.CatalogUpdateWorker([car, other], {'1987|Ferrari|F40': 'photo.png'}, tmp_path / 'catalog.json', photos_only=True)
+    worker.run()
+    import json
+    report = json.loads((tmp_path / 'photo-report.json').read_text())
+    assert report['unmatched'] == ['1987|Ferrari|Unknown']
+    assert report['failed'][0]['car'] == '1987|Ferrari|F40'
+    assert 'HTTP 403' in report['failed'][0]['errors'][0]
+
+
+def test_cached_photos_do_not_need_category_lookup(monkeypatch, tmp_path, car):
+    monkeypatch.setattr(updates, 'is_valid_image', lambda path: True)
+    monkeypatch.setattr(updates, 'get_fh6_thumbnail_titles', lambda: pytest.fail('Cached photos need no lookup'))
+    worker = updates.CatalogUpdateWorker([car], {'1987|Ferrari|F40': 'photo.png'}, tmp_path / 'catalog.json', photos_only=True)
+    completed = []
+    worker.signals.completed.connect(lambda *args: completed.append(args))
+    worker.run()
+    assert len(completed) == 1
+    import json
+    report = json.loads((tmp_path / 'photo-report.json').read_text())
+    assert report['cached'] == 1
+    assert not report['failed']

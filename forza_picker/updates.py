@@ -11,7 +11,7 @@ from forza_picker.car import Car
 from forza_picker.wiki_images import (
     car_image_key, cache_file_name_from_wiki_title, find_wiki_title_for_car,
     get_base_thumbnail_titles, get_fh6_thumbnail_titles,
-    get_or_download_wiki_image, normalize_wiki_title,
+    get_or_download_wiki_image, normalize_wiki_title, get_cached_image_path, is_valid_image,
 )
 from scripts.update_catalog import fetch_car_list_page, parse_car_row
 
@@ -64,8 +64,9 @@ class UpdateSignals(QObject):
 
 
 class CatalogUpdateWorker(QRunnable):
-    def __init__(self, cars, image_map, snapshot_path):
+    def __init__(self, cars, image_map, snapshot_path, photos_only=False):
         super().__init__()
+        self.photos_only = photos_only
         self.cars = list(cars)
         self.image_map = dict(image_map)
         self.snapshot_path = snapshot_path
@@ -73,43 +74,67 @@ class CatalogUpdateWorker(QRunnable):
 
     def run(self):
         try:
-            self.signals.progress.emit('Checking the official car list…')
-            fetched = parse_catalog(fetch_car_list_page())
-            # A partial upstream list must never silently remove existing cars.
+            self.signals.progress.emit('Checking missing photos…' if self.photos_only else 'Checking the official car list…')
+            fetched = [] if self.photos_only else parse_catalog(fetch_car_list_page())
             merged = {car_image_key(car): car for car in self.cars}
             added = sum(car_image_key(car) not in merged for car in fetched)
             merged.update({car_image_key(car): car for car in fetched})
             cars = list(merged.values())
             images = dict(self.image_map)
-            warnings = []
-            downloaded = 0
-            try:
-                self.signals.progress.emit('Looking up car photos…')
-                lookup = {normalize_wiki_title(title): title for title in
-                          get_base_thumbnail_titles(get_fh6_thumbnail_titles())}
-                for index, car in enumerate(cars, 1):
-                    title = find_wiki_title_for_car(car, lookup)
-                    key = car_image_key(car)
-                    if title:
-                        images[key] = cache_file_name_from_wiki_title(title)
-                    elif key in images:
-                        title = f'File:{images[key]}'
-                    if not title:
-                        continue
-                    self.signals.progress.emit(f'Checking photo {index}/{len(cars)}…')
+            report = {"cached": 0, "downloaded": 0, "unmatched": [], "failed": [], "lookup_error": None}
+            missing = []
+            for car in cars:
+                filename = images.get(car_image_key(car))
+                if filename and is_valid_image(get_cached_image_path(filename)):
+                    report["cached"] += 1
+                else:
+                    missing.append(car)
+            lookup = {}
+            if missing:
+                try:
+                    self.signals.progress.emit('Looking up missing car photos…')
+                    lookup = {normalize_wiki_title(title): title for title in
+                              get_base_thumbnail_titles(get_fh6_thumbnail_titles())}
+                except Exception as exc:
+                    report["lookup_error"] = str(exc)
+            for index, car in enumerate(missing, 1):
+                key = car_image_key(car)
+                # Try the saved filename even when the category API is unavailable.
+                titles = []
+                if key in images:
+                    titles.append(f'File:{images[key]}')
+                matched = find_wiki_title_for_car(car, lookup)
+                if matched and matched not in titles:
+                    titles.append(matched)
+                if not titles:
+                    report["unmatched"].append(key)
+                    continue
+                self.signals.progress.emit(f'Downloading missing photo {index}/{len(missing)}…')
+                errors = []
+                for title in titles:
                     try:
-                        if get_or_download_wiki_image(title) is None:
-                            warnings.append(key)
-                        else:
-                            downloaded += 1
-                    except Exception:
-                        warnings.append(key)
-            except Exception as exc:
-                warnings.append(f'Photo lookup unavailable: {exc}')
+                        path = get_or_download_wiki_image(title)
+                        if path is None:
+                            errors.append(f'{title}: no image URL published')
+                            continue
+                        images[key] = cache_file_name_from_wiki_title(title)
+                        report["downloaded"] += 1
+                        break
+                    except Exception as exc:
+                        errors.append(f'{title}: {exc}')
+                else:
+                    report["failed"].append({"car": key, "errors": errors})
             save_snapshot(self.snapshot_path, cars, images)
-            message = f'Catalog updated: {added} new cars. {downloaded} photos available.'
-            if warnings:
-                message += f' Photos could not be retrieved for {len(warnings)} requests; you can retry later.'
+            report_path = self.snapshot_path.with_name('photo-report.json')
+            message = (f'Catalog updated: {added} new cars. Photos: {report["cached"]} cached, '
+                       f'{report["downloaded"]} downloaded, {len(report["unmatched"])} unmatched, '
+                       f'{len(report["failed"])} failed.')
+            try:
+                report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
+            except OSError as exc:
+                message += f' Could not save photo report: {exc}'
+            if report["lookup_error"]:
+                message += ' Wiki lookup unavailable; existing mappings were still tried.'
             self.signals.completed.emit(cars, images, message)
         except Exception as exc:
             self.signals.failed.emit(f'Update failed. Your existing catalog is unchanged.\n{exc}')

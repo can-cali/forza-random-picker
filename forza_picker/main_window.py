@@ -294,6 +294,9 @@ class MainWindow(QMainWindow):
         menu = self.menuBar().addMenu("Updates")
         self.check_updates_action = menu.addAction("Update car list and photos now")
         self.check_updates_action.triggered.connect(self.check_for_updates)
+        self.retry_photos_action = menu.addAction("Retry missing photos")
+        self.retry_photos_action.triggered.connect(lambda: self.check_for_updates(photos_only=True))
+        menu.addAction("Show photo download report").triggered.connect(self.show_photo_report)
         self.auto_updates_action = QAction("Check for updates at startup", self)
         self.auto_updates_action.setCheckable(True)
         self.auto_updates_action.setChecked(self.settings.value("updates/automatic", False, type=bool))
@@ -316,11 +319,25 @@ class MainWindow(QMainWindow):
         if self.auto_updates_action.isChecked():
             self.check_for_updates()
 
-    def check_for_updates(self):
+    def show_photo_report(self):
+        path = self.snapshot_path.with_name("photo-report.json")
+        try:
+            report = path.read_text(encoding="utf-8")
+        except OSError:
+            QMessageBox.information(self, "Photo downloads", "No photo report yet. Run an update or retry missing photos first.")
+            return
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Photo download report")
+        dialog.setText("Expand details for the last photo update, including unmatched cars and download errors.")
+        dialog.setDetailedText(report)
+        dialog.exec()
+
+    def check_for_updates(self, _checked=False, *, photos_only=False):
         if self.update_worker is not None:
             return
         self.check_updates_action.setEnabled(False)
-        self.update_worker = CatalogUpdateWorker(self.cars, self.image_map, self.snapshot_path)
+        self.retry_photos_action.setEnabled(False)
+        self.update_worker = CatalogUpdateWorker(self.cars, self.image_map, self.snapshot_path, photos_only=photos_only)
         self.update_worker.signals.progress.connect(self.statusBar().showMessage)
         self.update_worker.signals.completed.connect(self.finish_update)
         self.update_worker.signals.failed.connect(self.fail_update)
@@ -336,13 +353,20 @@ class MainWindow(QMainWindow):
         old.deleteLater()
         self.dlc_filter.selectionChanged.connect(self.update_filter_options)
         self.update_filter_options()
+        if self.current_car_key in image_map:
+            from forza_picker.wiki_images import get_cached_image_path, is_valid_image
+            path = get_cached_image_path(image_map[self.current_car_key])
+            if is_valid_image(path):
+                self.show_image(path)
         self.update_worker = None
         self.check_updates_action.setEnabled(True)
+        self.retry_photos_action.setEnabled(True)
         self.statusBar().showMessage(message)
 
     def fail_update(self, message):
         self.update_worker = None
         self.check_updates_action.setEnabled(True)
+        self.retry_photos_action.setEnabled(True)
         self.statusBar().showMessage(message.replace("\n", " "))
         QMessageBox.warning(self, "Car update", message)
 
