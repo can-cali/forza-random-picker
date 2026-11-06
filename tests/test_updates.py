@@ -6,6 +6,11 @@ from forza_picker.car import Car
 from forza_picker import updates
 
 
+@pytest.fixture(autouse=True)
+def no_live_downloads(monkeypatch):
+    monkeypatch.setattr(updates, 'get_or_download_wiki_image', lambda title, **kwargs: None)
+
+
 @pytest.fixture
 def car():
     return Car('Ferrari', 'F40', 1987, 800, 'A', 'Italy', 'Retro Supercars', True)
@@ -115,7 +120,9 @@ def test_failed_mapping_falls_back_to_new_match(monkeypatch, tmp_path, car):
 
 def test_report_distinguishes_unmatched_and_failed(monkeypatch, tmp_path, car):
     monkeypatch.setattr(updates, 'get_fh6_thumbnail_titles', lambda: [])
-    def fail(title):
+    def fail(title, *, api_fallback=True):
+        if not api_fallback:
+            return None
         raise RuntimeError('HTTP 403 forbidden')
     monkeypatch.setattr(updates, 'get_or_download_wiki_image', fail)
     other = replace(car, model='Unknown')
@@ -140,3 +147,20 @@ def test_cached_photos_do_not_need_category_lookup(monkeypatch, tmp_path, car):
     report = json.loads((tmp_path / 'photo-report.json').read_text())
     assert report['cached'] == 1
     assert not report['failed']
+
+
+def test_unmapped_car_can_be_discovered_without_category_api(monkeypatch, tmp_path, car):
+    def unavailable():
+        raise RuntimeError('API unavailable')
+    monkeypatch.setattr(updates, 'get_fh6_thumbnail_titles', unavailable)
+    calls = []
+    def download(title, *, api_fallback=True):
+        calls.append((title, api_fallback))
+        if title == 'File:FH6 Ferrari F40.png':
+            return tmp_path / 'photo.png'
+        return None
+    monkeypatch.setattr(updates, 'get_or_download_wiki_image', download)
+    worker = updates.CatalogUpdateWorker([car], {}, tmp_path / 'catalog.json', photos_only=True)
+    worker.run()
+    assert updates.load_snapshot(tmp_path / 'catalog.json')[1] == {'1987|Ferrari|F40': 'FH6 Ferrari F40.png'}
+    assert calls == [('File:FH6 Ferrari F40 1987.png', False), ('File:FH6 Ferrari F40.png', False)]

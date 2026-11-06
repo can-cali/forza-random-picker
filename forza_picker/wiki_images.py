@@ -1,3 +1,6 @@
+import hashlib
+from urllib.parse import quote
+
 import os
 import tempfile
 import threading
@@ -207,23 +210,57 @@ def get_cached_image_path(file_name: str) -> Path:
     return IMAGE_CACHE_DIR / file_name
 
 
-def get_or_download_wiki_image(
-    wiki_title: str,
-) -> Path | None:
-    file_name = cache_file_name_from_wiki_title(wiki_title)
-    destination = get_cached_image_path(file_name)
+def direct_cdn_url(wiki_title: str) -> str:
+    """MediaWiki hashes the canonical, UTF-8 filename, before URL encoding."""
+    filename = cache_file_name_from_wiki_title(wiki_title).replace(" ", "_")
+    digest = hashlib.md5(filename.encode("utf-8"), usedforsecurity=False).hexdigest()
+    return (f"https://static.wikia.nocookie.net/forzamotorsport/images/"
+            f"{digest[0]}/{digest[:2]}/{quote(filename, safe='')}/revision/latest")
 
+
+def candidate_wiki_titles(car: Car) -> list[str]:
+    """Bounded exact-name variants; never guess a different model or year."""
+    name = f"{car.make} {car.model}"
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    names = list(dict.fromkeys([name, plain, plain.replace("#", "").replace("'", "")]))
+    titles = []
+    for variant in names:
+        for label in (f"{variant} {car.year}", variant, f"{car.year} {variant}"):
+            title = f"File:FH6 {label}.png"
+            # Some wiki names contain slashes; don't construct unsafe local paths.
+            filename = cache_file_name_from_wiki_title(title)
+            if "/" not in filename and "\\" not in filename:
+                titles.append(title)
+    return list(dict.fromkeys(titles))
+
+
+def get_or_download_wiki_image(wiki_title: str, *, api_fallback: bool = True) -> Path | None:
+    destination = get_cached_image_path(cache_file_name_from_wiki_title(wiki_title))
     if is_valid_image(destination):
         return destination
+    direct_error = None
+    try:
+        download_image(direct_cdn_url(wiki_title), destination)
+        return destination
+    except requests.HTTPError as exc:
+        if not api_fallback:
+            if exc.response is not None and exc.response.status_code == 404:
+                return None
+            raise
+        direct_error = exc
+    except (requests.RequestException, ValueError) as exc:
+        if not api_fallback:
+            raise
+        direct_error = exc
+    try:
+        image_url = get_wiki_image_url(wiki_title)
+        if image_url is None:
+            return None
+        download_image(image_url, destination)
+        return destination
+    except (requests.RequestException, ValueError) as exc:
+        raise RuntimeError(f"Direct CDN: {direct_error}; API fallback: {exc}") from exc
 
-    image_url = get_wiki_image_url(wiki_title)
-
-    if image_url is None:
-        return None
-
-    download_image(image_url, destination)
-
-    return destination
 
 def cache_file_name_from_wiki_title(wiki_title: str) -> str:
     return wiki_title.removeprefix("File:")

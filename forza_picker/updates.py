@@ -11,7 +11,7 @@ from forza_picker.car import Car
 from forza_picker.wiki_images import (
     car_image_key, cache_file_name_from_wiki_title, find_wiki_title_for_car,
     get_base_thumbnail_titles, get_fh6_thumbnail_titles,
-    get_or_download_wiki_image, normalize_wiki_title, get_cached_image_path, is_valid_image,
+    get_or_download_wiki_image, normalize_wiki_title, get_cached_image_path, is_valid_image, candidate_wiki_titles,
 )
 from scripts.update_catalog import fetch_car_list_page, parse_car_row
 
@@ -81,7 +81,7 @@ class CatalogUpdateWorker(QRunnable):
             merged.update({car_image_key(car): car for car in fetched})
             cars = list(merged.values())
             images = dict(self.image_map)
-            report = {"cached": 0, "downloaded": 0, "unmatched": [], "failed": [], "lookup_error": None}
+            report = {"cached": 0, "downloaded": 0, "unmatched": [], "failed": [], "lookup_error": None, "unmatched_attempts": {}}
             missing = []
             for car in cars:
                 filename = images.get(car_image_key(car))
@@ -106,16 +106,19 @@ class CatalogUpdateWorker(QRunnable):
                 matched = find_wiki_title_for_car(car, lookup)
                 if matched and matched not in titles:
                     titles.append(matched)
-                if not titles:
-                    report["unmatched"].append(key)
-                    continue
+                known_titles = set(titles)
+                titles.extend(title for title in candidate_wiki_titles(car) if title not in known_titles)
                 self.signals.progress.emit(f'Downloading missing photo {index}/{len(missing)}…')
                 errors = []
+                absent = []
                 for title in titles:
                     try:
-                        path = get_or_download_wiki_image(title)
+                        if title in known_titles:
+                            path = get_or_download_wiki_image(title)
+                        else:
+                            path = get_or_download_wiki_image(title, api_fallback=False)
                         if path is None:
-                            errors.append(f'{title}: no image URL published')
+                            absent.append(title)
                             continue
                         images[key] = cache_file_name_from_wiki_title(title)
                         report["downloaded"] += 1
@@ -123,7 +126,11 @@ class CatalogUpdateWorker(QRunnable):
                     except Exception as exc:
                         errors.append(f'{title}: {exc}')
                 else:
-                    report["failed"].append({"car": key, "errors": errors})
+                    if errors:
+                        report["failed"].append({"car": key, "errors": errors, "not_found": absent})
+                    else:
+                        report["unmatched"].append(key)
+                        report["unmatched_attempts"][key] = absent
             save_snapshot(self.snapshot_path, cars, images)
             report_path = self.snapshot_path.with_name('photo-report.json')
             message = (f'Catalog updated: {added} new cars. Photos: {report["cached"]} cached, '

@@ -192,3 +192,82 @@ def test_normalization_supports_other_image_formats():
     from forza_picker.wiki_images import normalize_wiki_title
     assert normalize_wiki_title('File:FH6 Ferrari F40.JPG') == 'ferrarif40'
     assert normalize_wiki_title('File:FH6 Ferrari F40.webp') == 'ferrarif40'
+
+
+def test_direct_cdn_hashes_before_url_encoding():
+    from forza_picker.wiki_images import direct_cdn_url
+    assert direct_cdn_url('File:FH6 BMW M4 CS.png') == (
+        'https://static.wikia.nocookie.net/forzamotorsport/images/9/9f/FH6_BMW_M4_CS.png/revision/latest')
+    assert direct_cdn_url('File:FH6 Mercedes-AMG GT63 4MATIC+.png') == (
+        'https://static.wikia.nocookie.net/forzamotorsport/images/f/f4/FH6_Mercedes-AMG_GT63_4MATIC%2B.png/revision/latest')
+
+
+def test_direct_download_does_not_call_api(monkeypatch, tmp_path):
+    from forza_picker import wiki_images as images
+    monkeypatch.setattr(images, 'IMAGE_CACHE_DIR', tmp_path)
+    calls = []
+    monkeypatch.setattr(images, 'download_image', lambda url, path: calls.append(url))
+    monkeypatch.setattr(images, 'get_wiki_image_url', lambda title: __import__('pytest').fail('API must not be called'))
+    assert images.get_or_download_wiki_image('File:FH6 BMW M4 CS.png') == tmp_path / 'FH6 BMW M4 CS.png'
+    assert len(calls) == 1
+    assert '/9/9f/' in calls[0]
+
+
+def test_missing_direct_image_uses_api_for_known_title(monkeypatch, tmp_path):
+    import requests
+    from forza_picker import wiki_images as images
+    monkeypatch.setattr(images, 'IMAGE_CACHE_DIR', tmp_path)
+    calls = []
+    def download(url, path):
+        calls.append(url)
+        if len(calls) == 1:
+            response = requests.Response()
+            response.status_code = 404
+            raise requests.HTTPError('Missing', response=response)
+    monkeypatch.setattr(images, 'download_image', download)
+    monkeypatch.setattr(images, 'get_wiki_image_url', lambda title: 'https://example.com/canonical-image')
+    assert images.get_or_download_wiki_image('File:known.png') == tmp_path / 'known.png'
+    assert calls[-1] == 'https://example.com/canonical-image'
+
+
+def test_candidate_404_does_not_call_api_or_save_placeholder(monkeypatch, tmp_path):
+    import requests
+    from forza_picker import wiki_images as images
+    monkeypatch.setattr(images, 'IMAGE_CACHE_DIR', tmp_path)
+    class Response:
+        content = (__import__('pathlib').Path(__file__).parents[1] / 'assets/car_placeholder.png').read_bytes()
+        def raise_for_status(self):
+            response = requests.Response()
+            response.status_code = 404
+            raise requests.HTTPError('Missing', response=response)
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+    monkeypatch.setattr(images, 'http_session', lambda: Session())
+    monkeypatch.setattr(images, 'get_wiki_image_url', lambda title: __import__('pytest').fail('No API for inferred title'))
+    assert images.get_or_download_wiki_image('File:absent.png', api_fallback=False) is None
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_candidate_titles_are_bounded_and_preserve_model():
+    from forza_picker.wiki_images import candidate_wiki_titles
+    titles = candidate_wiki_titles(sample_car())
+    assert titles == ['File:FH6 Ferrari F40 1987.png', 'File:FH6 Ferrari F40.png', 'File:FH6 1987 Ferrari F40.png']
+
+
+def test_api_failure_keeps_direct_failure_details(monkeypatch, tmp_path):
+    import pytest
+    import requests
+    from forza_picker import wiki_images as images
+    monkeypatch.setattr(images, 'IMAGE_CACHE_DIR', tmp_path)
+    def direct_failure(url, path):
+        response = requests.Response()
+        response.status_code = 403
+        raise requests.HTTPError('403 Forbidden', response=response)
+    def api_failure(title):
+        raise requests.HTTPError('402 API unavailable')
+    monkeypatch.setattr(images, 'download_image', direct_failure)
+    monkeypatch.setattr(images, 'get_wiki_image_url', api_failure)
+    with pytest.raises(RuntimeError, match='Direct CDN: 403 Forbidden; API fallback: 402 API unavailable'):
+        images.get_or_download_wiki_image('File:known.png')
+    assert not list(tmp_path.iterdir())
